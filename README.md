@@ -8,7 +8,7 @@ A PyTorch implementation of the paper:
 
 The proposed pipeline contains two submodules, adaptive depth sampling (N etM ) and depth reconstruction (N etE). The binary adaptive sampling mask is generated based on the RGB image. Then, the LiDAR samples the scene based on the binary sampling mask and generate the sampled sparse depth map. Finally, both RGB image and sampled sparse depth map are applied to estimate the dense depth map.
 
-<img src='figs/intro_example.png' width=800>
+<img src='figs/intro_example.png' width=400>
 
 LiDAR systems is able to capture accurate sparse depth map (bottom). Reducing the number of samples is able to increase the capture framerate. RGB image (top) can be applied to fuse with the captured sparse depth data and estimate a dense depth map. We demonstrate that choosing the sampling location is im-
 portant to the accuracy of the estimated depth map. Under 0.25% sampling rate (with respect to the RGB image), using the same depth estimation method, the depth map estimated from the adaptively sampled sparse depth (third row) is more accurate than the depth map estimated from random samples (second row).
