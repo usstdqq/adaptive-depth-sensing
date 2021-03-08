@@ -21,7 +21,7 @@ from dataloaders.data_utils import KITTI_Dataset
 
 # Training settings
 parser = argparse.ArgumentParser(description='PyTorch NetE')
-parser.add_argument('--sample_rate', type=int, default=0.01, help="sample rate for pixel interpolation")
+parser.add_argument('--sample_rate', type=int, default=0.0025, help="sample rate for pixel interpolation")
 parser.add_argument('--batchSize', type=int, default=16, help='training batch size')
 parser.add_argument('--nEpochs', type=int, default=100, help='number of epochs for training')
 parser.add_argument('--lr', type=float, default=0.01, help='Learning Rate. Default=0.01')
@@ -34,7 +34,7 @@ parser.add_argument('--seed', type=int, default=123, help='random seed to use. D
 parser.add_argument('--train_data_csv_path', type=str, default="/home/dqq/Data/KITTI/inpainted/train.csv", help='path to train_csv')
 parser.add_argument('--val_data_csv_path', type=str, default="/home/dqq/Data/KITTI/inpainted/val.csv", help='path to val_csv')
 parser.add_argument('--path_to_save', type=str, default="epochs_S2D_SparseD_wd", help='path to save trained models')
-parser.add_argument('--path_to_tensorboard_log', type=str, default="tensorBoardRuns/S2D-SparseD-linear-bilinear-clip-batch-16-240x960-crop-default-nyusize-epoch-100-lr-001-decay-SGD-c-001-L1-loss-03-02-2021", help='path to tensorboard logging')
+parser.add_argument('--path_to_tensorboard_log', type=str, default="tensorBoardRuns/S2D-SparseD-linear-bilinear-clip-batch-16-240x960-crop-default-nyusize-epoch-100-lr-001-decay-SGD-c-00025-L1-loss-03-02-2021", help='path to tensorboard logging')
 parser.add_argument('--device_ids', type=list, default=[0, 1], help='path to tensorboard logging')
 
 opt = parser.parse_args()

@@ -19,10 +19,6 @@ portant to the accuracy of the estimated depth map. Under 0.25% sampling rate (w
 ## Requirements
 - [Anaconda](https://www.anaconda.com/download/)
 - [PyTorch](https://pytorch.org/)
-- tqdm
-```
-pip install tqdm
-```
 - opencv
 ```
 conda install -c conda-forge opencv
@@ -31,15 +27,11 @@ conda install -c conda-forge opencv
 ```
 pip install tensorboard_logger
 ```
-- h5py
-```
-conda install h5py
-```
 
 ## Datasets
 
 ### Train and Val Dataset
-The train and val datasets are sampled from [ImageNet](http://www.image-net.org/).
+The train and val datasets are sampled from [KITTI-depth-completion](http://www.cvlibs.net/datasets/kitti/eval_depth.php?benchmark=depth_completion).
 Train dataset has 100000 images. Val dataset has 1000 images.
 Download the datasets from [here](https://drive.google.com/file/d/1RNfvuZKdf8MZAb1zzVgsFSlX36oc1uPA/view?usp=sharing), 
 and then extract it into `$data` directory. Modify the path of `$data` directory in line#48 of file train_NetE.py and line#48 of file train_NetM.py.
