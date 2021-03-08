@@ -38,13 +38,13 @@ and then extract it into `$data` directory. Modify the path of `$data` directory
 
 ## Usage
 
-### Train NetS2D
+### Train NetE
 
 Run
 ```
 python train_SparseD2DenseD.py
 ```
-to train the RGB and Sparse Depth Completion network NetS2D.
+to train the RGB and Sparse Depth Completion network NetE.
 
 ### Train NetFCN
 
@@ -52,11 +52,11 @@ Run
 ```
 python train_SuperPixelFCN_color.py
 ```
-to train the FCN super pixel network using the SLIC loss. NetFCN is used as initialization of NetM
+to train the FCN super pixel network using the SLIC loss. NetFCN is used as initialization of NetM.
 
 ### Train NetM
 
-After NetS2D and NetFCN are trained, modify the file name of trained NetE in line#29 of file train_NetM.py and run
+After NetE and NetFCN are trained, modify the file name of trained NetE in line#29 of file train_NetM.py and run
 ```
 python train_NetM.py
 ```
