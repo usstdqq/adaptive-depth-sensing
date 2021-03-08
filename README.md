@@ -34,24 +34,29 @@ pip install tensorboard_logger
 The train and val datasets are sampled from [KITTI-depth-completion](http://www.cvlibs.net/datasets/kitti/eval_depth.php?benchmark=depth_completion).
 Train dataset has 42949 images. Val dataset has 3426 images. We use a [traditional image inpainting algorithm](https://www.cs.huji.ac.il/~yweiss/Colorization/) to densify the semi-dense ground truth depth data. 
 Download the datasets from [here](TBD), 
-and then extract it into `$data` directory. Modify the path of `$data` directory in line#48 of file train_NetE.py and line#48 of file train_NetM.py.
-
-### Test Image Dataset
-The test image dataset are sampled from [ImageNet](http://www.image-net.org/). It contains 100 images. It is stored in file data_val_100.h5 .
+and then extract it into `$data` directory. Modify the path of `$data` directory in line#34/35 of file train_SparseD2DenseD.py, line#49/50 of file train_SuperPixelFCN_color.py and line#XX/XX of file train_NetM.py.
 
 ## Usage
 
-### Train NetE
+### Train NetS2D
 
 Run
 ```
-python train_NetE.py
+python train_SparseD2DenseD.py
 ```
-to train the image inpainting network NetE.
+to train the RGB and Sparse Depth Completion network NetS2D.
+
+### Train NetFCN
+
+Run
+```
+python train_SuperPixelFCN_color.py
+```
+to train the FCN super pixel network using the SLIC loss. NetFCN is used as initialization of NetM
 
 ### Train NetM
 
-After NetE is trained, modify the file name of trained NetE in line#29 of file train_NetM.py and run
+After NetS2D and NetFCN are trained, modify the file name of trained NetE in line#29 of file train_NetM.py and run
 ```
 python train_NetM.py
 ```
