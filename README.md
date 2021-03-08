@@ -1,6 +1,6 @@
 # Adaptive Depth Sampling using Deep Learning
 A PyTorch implementation of the paper:
-[Adaptive Image Sampling using Deep Learning and its Application on X-Ray Fluorescence Image Reconstruction] [[Arxiv Preprint]](https://arxiv.org/abs/1812.10836) [[IEEE Transactions on Multimedia]](https://ieeexplore.ieee.org/document/8930037) 
+[Adaptive Illumination based Depth Sensing using Deep Learning] [[Arxiv Preprint]](TBD) 
 
 ## Introduction
 
@@ -32,8 +32,8 @@ pip install tensorboard_logger
 
 ### Train and Val Dataset
 The train and val datasets are sampled from [KITTI-depth-completion](http://www.cvlibs.net/datasets/kitti/eval_depth.php?benchmark=depth_completion).
-Train dataset has 100000 images. Val dataset has 1000 images.
-Download the datasets from [here](https://drive.google.com/file/d/1RNfvuZKdf8MZAb1zzVgsFSlX36oc1uPA/view?usp=sharing), 
+Train dataset has 42949 images. Val dataset has 3426 images. We use a [traditional image inpainting algorithm](https://www.cs.huji.ac.il/~yweiss/Colorization/) to densify the semi-dense ground truth depth data. 
+Download the datasets from [here](TBD), 
 and then extract it into `$data` directory. Modify the path of `$data` directory in line#48 of file train_NetE.py and line#48 of file train_NetM.py.
 
 ### Test Image Dataset
