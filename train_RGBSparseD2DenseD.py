@@ -33,8 +33,8 @@ parser.add_argument('--threads', type=int, default=8, help='number of threads fo
 parser.add_argument('--seed', type=int, default=123, help='random seed to use. Default=123')
 parser.add_argument('--train_data_csv_path', type=str, default="/home/dqq/Data/KITTI/inpainted/train.csv", help='path to train_csv')
 parser.add_argument('--val_data_csv_path', type=str, default="/home/dqq/Data/KITTI/inpainted/val.csv", help='path to val_csv')
-parser.add_argument('--path_to_save', type=str, default="epochs_S2D_SparseD_wd", help='path to save trained models')
-parser.add_argument('--path_to_tensorboard_log', type=str, default="tensorBoardRuns/S2D-SparseD-linear-bilinear-clip-batch-16-240x960-crop-default-nyusize-epoch-100-lr-001-decay-SGD-c-00025-L1-loss-03-02-2021", help='path to tensorboard logging')
+parser.add_argument('--path_to_save', type=str, default="epochs_S2D_RGBSparseD_wd", help='path to save trained models')
+parser.add_argument('--path_to_tensorboard_log', type=str, default="tensorBoardRuns/S2D-RGBSparseD-linear-bilinear-clip-batch-16-240x960-crop-default-nyusize-epoch-100-lr-001-decay-SGD-c-00025-L1-loss-03-02-2021", help='path to tensorboard logging')
 parser.add_argument('--device_ids', type=list, default=[0, 1], help='path to tensorboard logging')
 
 opt = parser.parse_args()
@@ -42,8 +42,8 @@ opt = parser.parse_args()
 print(opt)
 
 fieldnames = ['mse', 'rmse', 'absrel', 'lg10', 'mae',
-                'delta1', 'delta2', 'delta3',
-                'data_time', 'gpu_time']
+              'delta1', 'delta2', 'delta3',
+              'data_time', 'gpu_time']
 best_result = Result()
 best_result.set_to_worst()
 
@@ -84,7 +84,7 @@ train_loader = DataLoader(dataset=train_set, num_workers=opt.threads, batch_size
 val_loader   = DataLoader(dataset=val_set,   num_workers=opt.threads, batch_size=4, shuffle=False)
 
 print('===> Building model...')
-model = ResNet(layers=18, decoder='deconv2', output_size=(240, 960), in_channels=1, pretrained=True)
+model = ResNet(layers=18, decoder='deconv2', output_size=(240, 960), in_channels=4, pretrained=True)
 model = nn.DataParallel(model, device_ids=opt.device_ids) #multi-GPU
 criterion_mse = MaskedMSELoss()
 criterion_depth = MaskedL1Loss()
@@ -160,7 +160,9 @@ def train(epoch):
         end = time.time()
         optimizer.zero_grad()
         
-        depth_prediction = model(depth_input) # white output
+        rgb_sparse_d_input = torch.cat((image_target, depth_input), 1) # white input
+        
+        depth_prediction = model(rgb_sparse_d_input) # white output
         
         loss_depth = criterion_depth(depth_prediction, depth_target, depth_mask)
         
@@ -265,14 +267,16 @@ def val(epoch):
             depth_target = depth_target.cuda()
             image_target = image_target.cuda()
             depth_mask = depth_mask.cuda()
-
+        
+        rgb_sparse_d_input = torch.cat((image_target, depth_input), 1) # white input
+        
         torch.cuda.synchronize()
         data_time = time.time() - end
         
         # compute output
         end = time.time()
         with torch.no_grad():
-            depth_prediction = model(depth_input)
+            depth_prediction = model(rgb_sparse_d_input)
             
         torch.cuda.synchronize()
         gpu_time = time.time() - end
