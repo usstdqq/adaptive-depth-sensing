@@ -15,7 +15,7 @@ from torch.autograd import Variable
 from torch.utils.data import DataLoader
 from model import ResNet
 from tensorboard_logger import configure, log_value, log_images
-from loss import L1, L1_log, RMSE_log, silog_loss, MaskedMSELoss, MaskedL1Loss
+from loss import MaskedMSELoss, MaskedL1Loss
 from metrics import AverageMeter, Result
 from dataloaders.data_utils import KITTI_Dataset
 

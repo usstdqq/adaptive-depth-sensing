@@ -49,7 +49,7 @@ parser.add_argument('--seed', type=int, default=123, help='random seed to use. D
 parser.add_argument('--train_data_csv_path', type=str, default="/home/dqq/Data/KITTI/inpainted/train.csv", help='path to train_csv')
 parser.add_argument('--val_data_csv_path', type=str, default="/home/dqq/Data/KITTI/inpainted/val.csv", help='path to val_csv')
 parser.add_argument('--path_to_save', type=str, default="epochs_SuperPixeFCN_color", help='path to save trained models')
-parser.add_argument('--path_to_tensorboard_log', type=str, default="tensorBoardRuns/SuperPixelFCN-color-loss-batch-8-bottom-crop-240x960-default-epoch-100-lr-000005-ADAM-c-001-color-loss-pos-weight-1-03-06-2021", help='path to tensorboard logging')
+parser.add_argument('--path_to_tensorboard_log', type=str, default="tensorBoardRuns/SuperPixelFCN-color-loss-batch-8-bottom-crop-240x960-default-epoch-100-lr-000005-ADAM-c-00025-color-loss-pos-weight-1-03-06-2021", help='path to tensorboard logging')
 parser.add_argument('--device_ids', type=list, default=[0], help='path to tensorboard logging')
 
 opt = parser.parse_args()
