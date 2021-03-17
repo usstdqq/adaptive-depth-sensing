@@ -286,44 +286,6 @@ class Mean_Shift(nn.Module):
         
         return x_out
         
-
-
-class _Residual_Block(nn.Module):
-    def __init__(self):
-        super(_Residual_Block, self).__init__()
-
-        self.conv1 = nn.Conv2d(in_channels=16, out_channels=16, kernel_size=3, stride=1, padding=1, bias=False)
-        self.in1 = nn.InstanceNorm2d(16, affine=True)
-        self.relu = nn.LeakyReLU(0.2, inplace=True)
-        self.conv2 = nn.Conv2d(in_channels=16, out_channels=16, kernel_size=3, stride=1, padding=1, bias=False)
-        self.in2 = nn.InstanceNorm2d(16, affine=True)
-        
-#        self.conv1 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False)
-#        self.in1 = nn.InstanceNorm2d(64, affine=True)
-#        self.relu = nn.LeakyReLU(0.2, inplace=True)
-#        self.conv2 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False)
-#        self.in2 = nn.InstanceNorm2d(64, affine=True)
-
-    def forward(self, x):
-        identity_data = x
-        output = self.relu(self.in1(self.conv1(x)))
-        output = self.in2(self.conv2(output))
-        output = torch.add(output,identity_data)
-        return output 
-
-class BerLayer(torch.autograd.Function):
-
-    @staticmethod
-    def forward(ctx, input):
-#        ctx.save_for_backward(input)
-        return input.clamp(min=0.0, max=1.0).bernoulli()
-
-    @staticmethod
-    def backward(ctx, grad_output):
-#        input, = ctx.saved_tensors
-        grad_input = grad_output.clone()
-        return grad_input
-
     
 class NetM(nn.Module):
     def __init__(self, path_to_NetSP_pre, sample_rate, img_height, img_width, down_size, batch_size, temperature_init, kernel_size=7):
@@ -346,66 +308,215 @@ class NetM(nn.Module):
         self.spixel_id_tensor.requires_grad = False
         self.xy_tensor.requires_grad = False
         
+        self.kernel_size = kernel_size;
+        self.pad_size = int((kernel_size-1)/2)
+        
+        self.temperature = torch.tensor(temperature_init, requires_grad=False)
+
         if torch.cuda.is_available():
             self.spixel_id_tensor = self.spixel_id_tensor.cuda()
             self.xy_tensor = self.xy_tensor.cuda()
 
-    def warp_sample(self, pooled_xy_tensor, dense_depth_gt):
-        
-        grid_h = pooled_xy_tensor[:, [1], :, :].clone() # Bx1xhxw
-        grid_w = pooled_xy_tensor[:, [0], :, :].clone() # Bx1xhxw
-        
-        grid_h = (2.0*grid_h - self.img_height) / self.img_height
-        grid_w = (2.0*grid_w - self.img_width) / self.img_width
-        
-        
-        grid_to_sample = torch.cat((grid_w, grid_h), dim=1) # Bx2xhxw
-        # grid_to_sample = torch.cat((grid_h, grid_w), dim=1) # Bx2xhxw
-        grid_to_sample = grid_to_sample.permute(0, 2, 3, 1)# Bxhxwx2
+    def soft_sample_mask(self, image_depth, rc_tensor, mask_binary, mask_rc_filled, batch_row_col_list, temperature_tensor):  
+        """
 
-        # broadcast self.norm_grid over
+        Parameters
+        ----------
+        image_depth : TYPE
+            Bx1xHxW.
+        rc_tensor : TYPE
+            Bx2xHxW.
+        mask_binary : TYPE
+            Bx1xHxW.
+        mask_rc_filled : TYPE
+            Bx2xHxW.
+        batch_row_col_list : TYPE
+            Bx2x(hxw).
+        temperature_tensor : TYPE
+            scaler.
 
-        depth_sampled = F.grid_sample(dense_depth_gt, grid_to_sample, align_corners=True)# Bx1xhxw
+        Returns
+        -------
+        mask_soft : TYPE
+            DESCRIPTION.
+
+        """
+        batch_size = rc_tensor.shape[0]
+        image_height = rc_tensor.shape[2]
+        image_width = rc_tensor.shape[3]        
+        sp_number = batch_row_col_list.shape[2] #Bx2xNSP
         
-        sparse_depth = self.expand(depth_sampled, pooled_xy_tensor)
+        block_kernel = torch.ones(1, 1, self.kernel_size, self.kernel_size, dtype=torch.float32)
+        if rc_tensor.is_cuda:
+            block_kernel = block_kernel.to(rc_tensor.device)
+            batch_row_col_list = batch_row_col_list.to(rc_tensor.device)
+            
+        step = 1
 
-        return sparse_depth, grid_to_sample
+        p2d = (self.pad_size, self.pad_size, self.pad_size, self.pad_size)
+        rc_tensor_pad = F.pad(rc_tensor, p2d, 'constant', 0)
+        image_depth_pad = F.pad(image_depth, p2d, 'constant', 0)
+        
+        #   Bx(HxW)xksxks
+        r_tensor_pad_unfold = rc_tensor_pad[:,[0],:,:].unfold(2, self.kernel_size, step).unfold(3, self.kernel_size, step).reshape(batch_size, image_height*image_width, self.kernel_size, self.kernel_size)
+        c_tensor_pad_unfold = rc_tensor_pad[:,[1],:,:].unfold(2, self.kernel_size, step).unfold(3, self.kernel_size, step).reshape(batch_size, image_height*image_width, self.kernel_size, self.kernel_size)
+        image_depth_pad_unfold = image_depth_pad[:,:,:,:].unfold(2, self.kernel_size, step).unfold(3, self.kernel_size, step).reshape(batch_size, image_height*image_width, self.kernel_size, self.kernel_size)
+        
+        mask_r_filled_pad_unfold = mask_rc_filled[:,[0],:,:].unfold(2, 1, step).unfold(3, 1, step).reshape(batch_size, image_height*image_width, 1, 1)        
+        mask_c_filled_pad_unfold = mask_rc_filled[:,[1],:,:].unfold(2, 1, step).unfold(3, 1, step).reshape(batch_size, image_height*image_width, 1, 1)        
+        
+        
+        batch_idx_list = batch_row_col_list[:,0,:]*image_width+batch_row_col_list[:,1,:] # Bx(HxW)
+        
+        #   Bx(hxw)xksxks
+        r_tensor_pad_unfold_select = torch.FloatTensor(batch_size, sp_number, self.kernel_size, self.kernel_size).zero_() 
+        c_tensor_pad_unfold_select = torch.FloatTensor(batch_size, sp_number, self.kernel_size, self.kernel_size).zero_() 
+        image_depth_pad_unfold_select = torch.FloatTensor(batch_size, sp_number, self.kernel_size, self.kernel_size).zero_() 
+        
+        if rc_tensor.is_cuda:
+            r_tensor_pad_unfold_select = r_tensor_pad_unfold_select.to(rc_tensor.device)
+            c_tensor_pad_unfold_select = c_tensor_pad_unfold_select.to(rc_tensor.device)
+            image_depth_pad_unfold_select = image_depth_pad_unfold_select.to(rc_tensor.device)
+            
+        for b in range(batch_size):
+            r_tensor_pad_unfold_select[b,:,:,:] = r_tensor_pad_unfold[b, batch_idx_list[b,:]]
+            c_tensor_pad_unfold_select[b,:,:,:] = c_tensor_pad_unfold[b, batch_idx_list[b,:]]
+            image_depth_pad_unfold_select[b,:,:,:] = image_depth_pad_unfold[b, batch_idx_list[b,:]]
+        
+        
+        #   Bx(hxw)x1x1
+        mask_r_filled_pad_unfold_select = torch.FloatTensor(batch_size, sp_number, 1, 1).zero_() 
+        mask_c_filled_pad_unfold_select = torch.FloatTensor(batch_size, sp_number, 1, 1).zero_() 
+        if torch.cuda.is_available():
+            mask_r_filled_pad_unfold_select = mask_r_filled_pad_unfold_select.to(rc_tensor.device)
+            mask_c_filled_pad_unfold_select = mask_c_filled_pad_unfold_select.to(rc_tensor.device)
+            
+        for b in range(batch_size):
+            mask_r_filled_pad_unfold_select[b,:,:,:] = mask_r_filled_pad_unfold[b, batch_idx_list[b,:]]
+            mask_c_filled_pad_unfold_select[b,:,:,:] = mask_c_filled_pad_unfold[b, batch_idx_list[b,:]]
+        
+        #   Bx(hxw)xksxks
+        r_diff_unfold_select = torch.abs(r_tensor_pad_unfold_select - mask_r_filled_pad_unfold_select)
+        c_diff_unfold_select = torch.abs(c_tensor_pad_unfold_select - mask_c_filled_pad_unfold_select)
+        
+        #   Bx(hxw)xksxks
+        distance_square_unfold_select = r_diff_unfold_select**2 + c_diff_unfold_select**2
+        distance_square_div_unfold_select = torch.div(distance_square_unfold_select, temperature_tensor**2)
+        
+        #   Bx(hxw)xksxks
+        minus_exp_unfold_select = torch.exp(-distance_square_div_unfold_select)
+        
+        #   Bx(hxw)x1x1
+        minus_exp_unfold_select_sum = torch.sum(minus_exp_unfold_select, dim=2, keepdim=True)
+        minus_exp_unfold_select_sum = torch.sum(minus_exp_unfold_select_sum, dim=3, keepdim=True)
+        
+        #   Bx(hxw)xksxks
+        minus_exp_unfold_select_norm = minus_exp_unfold_select / (minus_exp_unfold_select_sum + EPS)
+        
+        #   Bx(hxw)xksxks
+        soft_sampled_depth_unfold_select = minus_exp_unfold_select_norm * image_depth_pad_unfold_select
+        
+        #   Bx(hxw)x1x1
+        soft_sampled_depth_unfold_select_sum = torch.sum(soft_sampled_depth_unfold_select, dim=2, keepdim=True)
+        soft_sampled_depth_unfold_select_sum = torch.sum(soft_sampled_depth_unfold_select_sum, dim=3, keepdim=True)
+        
+        #   Bx(hxw)xksxks
+        soft_sampled_depth = torch.FloatTensor(batch_size, 1, image_height, image_width).zero_() 
+        if rc_tensor.is_cuda:
+            soft_sampled_depth = soft_sampled_depth.to(rc_tensor.device)
+        
+        for b in range(batch_size):
+            soft_sampled_depth[b, :, :, :] = torch.sparse.FloatTensor(batch_row_col_list[b,:,:], soft_sampled_depth_unfold_select_sum[b,:,:,:].squeeze(), torch.Size([image_height, image_width])).to_dense()
+        
+        #   Bx(HxW)xksxks
+        mask_soft_unfold = torch.FloatTensor(batch_size, image_height*image_width, self.kernel_size, self.kernel_size).zero_() 
+        mask_overlap_unfold = torch.FloatTensor(batch_size, image_height*image_width, self.kernel_size, self.kernel_size).zero_() 
+        
+        if rc_tensor.is_cuda:
+            mask_soft_unfold = mask_soft_unfold.to(rc_tensor.device)
+            mask_overlap_unfold = mask_overlap_unfold.to(rc_tensor.device)
+            
+        for b in range(batch_size):
+            mask_soft_unfold[b,batch_idx_list[b,:],:,:] = minus_exp_unfold_select_norm[b, :]
+            mask_overlap_unfold[b,batch_idx_list[b,:],:,:] = 1.0
+            
+        #   Bxksxksx(HxW)
+        mask_soft_unfold = mask_soft_unfold.permute(0, 2, 3, 1)
+        mask_overlap_unfold = mask_overlap_unfold.permute(0, 2, 3, 1)
+        
+        #   Bx(ksxks)x(HxW)
+        mask_soft_unfold = mask_soft_unfold.reshape(batch_size, self.kernel_size*self.kernel_size, image_height*image_width)
+        mask_overlap_unfold = mask_overlap_unfold.reshape(batch_size, self.kernel_size*self.kernel_size, image_height*image_width)
+        
+        mask_soft = F.fold(mask_soft_unfold, (image_height+2*self.pad_size, image_width+2*self.pad_size), kernel_size=(self.kernel_size, self.kernel_size), stride=1, dilation=1)
+        mask_overlap = F.fold(mask_overlap_unfold, (image_height+2*self.pad_size, image_width+2*self.pad_size), kernel_size=(self.kernel_size, self.kernel_size), stride=1, dilation=1)
     
-    def expand(self, depth_sampled, pooled_xy_tensor):
-        sparse_depth = torch.zeros(depth_sampled.shape[0],
-                                   depth_sampled.shape[1],
-                                   self.img_height,
-                                   self.img_width)
+        #   Bx1xHxW
+        mask_soft = mask_soft[:,:,self.pad_size:-self.pad_size,self.pad_size:-self.pad_size]
+        mask_overlap = mask_overlap[:,:,self.pad_size:-self.pad_size,self.pad_size:-self.pad_size]
         
-        if pooled_xy_tensor.is_cuda:
-            sparse_depth = sparse_depth.cuda()
-            
-        for b in range(depth_sampled.shape[0]):
-            grid_xp = pooled_xy_tensor[b,0,:,:] #24x96
-            grid_yp = pooled_xy_tensor[b,1,:,:] #24x96
-            
-            row_list = grid_yp.view(-1) # 2304
-            col_list = grid_xp.view(-1) # 2304
-            
-            row_list = torch.round(row_list)
-            col_list = torch.round(col_list)
-            
-            row_list = torch.clamp(row_list, 0, self.img_height-1)
-            col_list = torch.clamp(col_list, 0, self.img_width-1)
-            
-            row_list = row_list.long()
-            col_list = col_list.long()
-            
-            row_col_list = torch.stack([row_list, col_list], dim=0)
-
-            
-            value_list = depth_sampled[b,:,:,:].view(-1) # 2304
-            
-            sparse_depth[b,0,:,:] = torch.sparse.FloatTensor(row_col_list, value_list, torch.Size([self.img_height,self.img_width])).to_dense()
-            
-
-        return sparse_depth    
+        mask_overlap[mask_overlap==0.0]=1.0
         
+        mask_soft = mask_soft / mask_overlap
+        soft_sampled_depth = soft_sampled_depth / mask_overlap
+        
+        return mask_soft, soft_sampled_depth
+    
+    def binary_sample_mask(self, pooled_rc_tensor):
+            
+            mask_binary = torch.zeros(pooled_rc_tensor.shape[0], 1, self.img_height, self.img_width, dtype=torch.float32)
+            mask_rc_filled = torch.zeros(pooled_rc_tensor.shape[0], 2, self.img_height, self.img_width, dtype=torch.float32)
+    
+            if pooled_rc_tensor.is_cuda:
+                mask_binary = mask_binary.to(pooled_rc_tensor.device)
+                mask_rc_filled = mask_rc_filled.to(pooled_rc_tensor.device)
+                
+            batch_row_col_list =  torch.zeros(pooled_rc_tensor.shape[0], 2, pooled_rc_tensor.shape[2]*pooled_rc_tensor.shape[3], dtype=torch.int)
+            
+            for b in range(pooled_rc_tensor.shape[0]):
+                
+                grid_rp = pooled_rc_tensor[b,0,:,:] #24x96
+                grid_cp = pooled_rc_tensor[b,1,:,:] #24x96
+                
+                row_list = grid_rp.view(-1) # 2304
+                col_list = grid_cp.view(-1) # 2304
+                
+                row_list_round = torch.round(row_list)
+                col_list_round = torch.round(col_list)
+                
+                row_list_round = torch.clamp(row_list_round, 0, self.img_height-1)
+                col_list_round = torch.clamp(col_list_round, 0, self.img_width-1)
+                
+                row_list_round = row_list_round.long()
+                col_list_round = col_list_round.long()
+                
+                row_col_round_list = torch.stack([row_list_round, col_list_round], dim=0)
+                row_col_list = torch.stack([row_list, col_list], dim=0)
+                
+                batch_row_col_list[b,:,:] = row_col_round_list                
+                                
+                value_list = torch.ones(row_col_list.shape[1])
+                if pooled_rc_tensor.is_cuda:
+                    value_list = value_list.to(pooled_rc_tensor.device)
+                    
+                mask_binary[b, 0, :, :] = torch.sparse.FloatTensor(row_col_round_list, value_list, torch.Size([self.img_height,self.img_width])).to_dense()
+                mask_rc_filled[b, 0, :, :] = torch.sparse.FloatTensor(row_col_round_list, row_col_list[0,:], torch.Size([self.img_height,self.img_width])).to_dense()
+                mask_rc_filled[b, 1, :, :] = torch.sparse.FloatTensor(row_col_round_list, row_col_list[1,:], torch.Size([self.img_height,self.img_width])).to_dense()
+                
+            #   we remove duplicates here
+            mask_overlap = mask_binary.clone()
+            mask_overlap[mask_overlap==0] = 1.0
+            
+            mask_binary = mask_binary / mask_overlap
+            mask_rc_filled[:,[0],:,:] = mask_rc_filled[:,[0],:,:] / mask_overlap
+            mask_rc_filled[:,[1],:,:] = mask_rc_filled[:,[1],:,:] / mask_overlap
+            
+            #   we allow duplicates here
+            batch_row_col_list = batch_row_col_list.long()
+            
+            return mask_binary, mask_rc_filled, batch_row_col_list
+        
+
     def forward(self, image_rgb, image_depth):
         
         input_batch_size = image_rgb.shape[0]
@@ -417,13 +528,17 @@ class NetM(nn.Module):
         curr_spixl_map = update_spixl_map(spixel_id_tensor, prob) #  Bx1xHxW, super pixel index map
         
         pooled_xy_tensor = poolfeat(xy_tensor, prob, self.down_size, self.down_size) # Bx2xhxw
+        reconstr_xy_tensor = upfeat(pooled_xy_tensor, prob, self.down_size, self.down_size) # Bx2xHxW
         
-        sparse_depth, grid_to_sample = self.warp_sample(pooled_xy_tensor, image_depth)
+        pooled_rc_tensor = torch.flip(pooled_xy_tensor, (1,))
+        dense_rc_tensor = torch.flip(xy_tensor, (1,))
+
+        mask_binary, mask_rc_filled, batch_row_col_list = self.binary_sample_mask(pooled_rc_tensor)
         
-        sampling_mask = sparse_depth > 0.0
-    
+        mask_soft, sparse_depth_soft = self.soft_sample_mask(image_depth, dense_rc_tensor, mask_binary, mask_rc_filled, batch_row_col_list, self.temperature)
         
-        return sparse_depth, sampling_mask, pooled_xy_tensor, curr_spixl_map, prob
+        
+        return sparse_depth_soft, mask_soft, mask_binary, pooled_xy_tensor, reconstr_xy_tensor, curr_spixl_map, prob
 
     
     def weight_parameters(self):
@@ -433,22 +548,27 @@ class NetM(nn.Module):
         return [param for name, param in self.named_parameters() if 'bias' in name]
     
 class NetME_RGBSparseD2Dense(nn.Module):
-    def __init__(self, NetE_path, NetSP_path, sample_rate, img_height, img_width, down_size, batch_size, temperature_init):
+    def __init__(self, NetE_path, NetSP_path, sample_rate, img_height, img_width, down_size, batch_size, temperature_init, kernel_size=7):
         super(NetME_RGBSparseD2Dense, self).__init__()
-        self.netM = NetM(NetSP_path, sample_rate, img_height, img_width, down_size, batch_size, temperature_init)
+        self.netM = NetM(NetSP_path, sample_rate, img_height, img_width, down_size, batch_size, temperature_init, kernel_size)
         self.netE = ResNet(layers=18, decoder='deconv2', output_size=(img_height, img_width), in_channels=4, pretrained=True)
             
         self.netE.load_state_dict(torch.load(NetE_path))
 
     def forward(self, img_rgb, img_depth, is_soft):
 
-        sparse_depth, sampling_mask, pooled_xy_tensor, curr_spixl_map, prob = self.netM(img_rgb, img_depth)
+        sparse_depth_soft, mask_soft, mask_binary, pooled_xy_tensor, reconstr_xy_tensor, curr_spixl_map, prob = self.netM(img_rgb, img_depth)
+        
+        if is_soft:
+            sparse_depth = sparse_depth_soft
+        else:
+            sparse_depth = mask_binary * img_depth
         
         rgb_sparse_d_input = torch.cat((img_rgb, sparse_depth), 1) # white input
         
         x_recon = self.netE(rgb_sparse_d_input)
         
-        return x_recon, sparse_depth, sampling_mask, pooled_xy_tensor, curr_spixl_map, prob
+        return x_recon, mask_soft, mask_binary, pooled_xy_tensor, reconstr_xy_tensor, curr_spixl_map, prob
     
 def draw_grid(img, line_color=(0, 255, 0), thickness=1, type_=cv2.LINE_AA, pxstep=10):
     '''(ndarray, 3-tuple, int, int) -> void
