@@ -13,29 +13,33 @@ import math
 from math import log10
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
-from model import ResNet
+from fusion_models.model import uncertainty_net
 from tensorboard_logger import configure, log_value, log_images
 from loss import MaskedMSELoss, MaskedL1Loss
 from metrics import AverageMeter, Result
-from dataloaders.data_utils import KITTI_Dataset
+from dataloaders.data_utils_nyuv2 import NYUDataset
 
 # Training settings
 parser = argparse.ArgumentParser(description='PyTorch NetE')
 parser.add_argument('--sample_rate', type=int, default=0.0025, help="sample rate for pixel interpolation")
 parser.add_argument('--batchSize', type=int, default=16, help='training batch size')
 parser.add_argument('--nEpochs', type=int, default=100, help='number of epochs for training')
-parser.add_argument('--lr', type=float, default=0.01, help='Learning Rate. Default=0.01')
+parser.add_argument('--lr', type=float, default=0.001, help='Learning Rate. Default=0.01')
 parser.add_argument('--momentum', type=float, default=0.9, help='momentum for SGD')
 parser.add_argument('--weight_decay', type=float, default=1e-4, help='weight_decay for SGD')
-parser.add_argument('--beta1', type=float, default=0.5, help='Adam momentum term. Default=0.5')
+parser.add_argument('--beta1', type=float, default=0.9, help='Adam momentum term. Default=0.9')
 parser.add_argument('--cuda', type=bool, default=True, help='use cuda?')
 parser.add_argument('--threads', type=int, default=8, help='number of threads for data loader to use')
 parser.add_argument('--seed', type=int, default=123, help='random seed to use. Default=123')
-parser.add_argument('--train_data_csv_path', type=str, default="/home/dqq/Data/KITTI/inpainted/train.csv", help='path to train_csv')
-parser.add_argument('--val_data_csv_path', type=str, default="/home/dqq/Data/KITTI/inpainted/val.csv", help='path to val_csv')
+parser.add_argument('--train_data_path', type=str, default="/home/dqq/Data/nyudepthv2_h5/train", help='path to train_csv')
+parser.add_argument('--val_data_path', type=str, default="/home/dqq/Data/nyudepthv2_h5/val", help='path to val_csv')
 parser.add_argument('--path_to_save', type=str, default="epochs_S2D_RGBSparseD_wd", help='path to save trained models')
-parser.add_argument('--path_to_tensorboard_log', type=str, default="tensorBoardRuns/S2D-RGBSparseD-linear-bilinear-clip-batch-16-240x960-crop-default-nyusize-epoch-100-lr-001-decay-SGD-c-00025-L1-loss-03-02-2021", help='path to tensorboard logging')
+parser.add_argument('--path_to_tensorboard_log', type=str, default="tensorBoardRuns/S2D-RGBSparseD-linear-bilinear-clip-batch-16-240x960-crop-default-nyusize-epoch-100-lr-0001-decay-SGD-c-00025-L1-loss-03-19-2021", help='path to tensorboard logging')
 parser.add_argument('--device_ids', type=list, default=[0, 1], help='path to tensorboard logging')
+parser.add_argument('--wlid', type=float, default=0.1, help="weight base loss")
+parser.add_argument('--wrgb', type=float, default=0.1, help="weight base loss")
+parser.add_argument('--wpred', type=float, default=1, help="weight base loss")
+parser.add_argument('--wguide', type=float, default=0.1, help="weight base loss")
 
 opt = parser.parse_args()
 
@@ -77,17 +81,18 @@ if cuda:
 print('===> Loading datasets...')
 # Please set the path to training and validation data here
 # Suggest to put the data in SSD to get better data IO speed
-train_set = KITTI_Dataset(opt.train_data_csv_path, True)
-val_set   = KITTI_Dataset(opt.val_data_csv_path,   False)
+train_set = NYUDataset(opt.train_data_path, type='train', modality='rgb', sparsifier=None)
+val_set   = NYUDataset(opt.val_data_path,   type='val',   modality='rgb', sparsifier=None)
+
 
 train_loader = DataLoader(dataset=train_set, num_workers=opt.threads, batch_size=opt.batchSize, shuffle=True )
 val_loader   = DataLoader(dataset=val_set,   num_workers=opt.threads, batch_size=4, shuffle=False)
 
 print('===> Building model...')
-model = ResNet(layers=18, decoder='deconv2', output_size=(240, 960), in_channels=4, pretrained=True)
+model = uncertainty_net(in_channels=4, thres=0)
 model = nn.DataParallel(model, device_ids=opt.device_ids) #multi-GPU
 criterion_mse = MaskedMSELoss()
-criterion_depth = MaskedL1Loss()
+criterion_depth = MaskedMSELoss()
 
 if torch.cuda.is_available():
     model = model.cuda()
@@ -119,7 +124,7 @@ def train(epoch):
     
     #   Step up learning rate decay
     lr = opt.lr * (0.2 ** (epoch // (opt.nEpochs // 4)))
-    optimizer = optim.SGD(model.parameters(), lr=lr, momentum=opt.momentum, weight_decay=opt.weight_decay)
+    optimizer = optim.Adam(model.parameters(), lr=lr, betas=(opt.beta1, 0.999))
 
     for iteration, batch in enumerate(train_loader, 1):
         image_target, depth_target, depth_mask = Variable(batch[0]), Variable(batch[1]), Variable(batch[2])
@@ -162,9 +167,14 @@ def train(epoch):
         
         rgb_sparse_d_input = torch.cat((image_target, depth_input), 1) # white input
         
-        depth_prediction = model(rgb_sparse_d_input) # white output
+        depth_prediction, lidar_out, precise, guide = model(rgb_sparse_d_input) # white output
         
         loss_depth = criterion_depth(depth_prediction, depth_target, depth_mask)
+        loss_lidar = criterion_depth(lidar_out[:,[0],:,:], depth_target, depth_mask)
+        loss_rgb = criterion_depth(precise, depth_target, depth_mask)
+        loss_guide = criterion_depth(guide, depth_target, depth_mask)
+        
+        loss_depth = opt.wpred*loss_depth + opt.wlid*loss_lidar + opt.wrgb*loss_rgb + opt.wguide*loss_guide
         
         loss_mse = criterion_mse(depth_prediction, depth_target, depth_mask)
         
@@ -276,7 +286,7 @@ def val(epoch):
         # compute output
         end = time.time()
         with torch.no_grad():
-            depth_prediction = model(rgb_sparse_d_input)
+            depth_prediction, lidar_out, precise, guide = model(rgb_sparse_d_input)
             
         torch.cuda.synchronize()
         gpu_time = time.time() - end
@@ -327,7 +337,7 @@ def val(epoch):
     global LOSS_best
     if avg_loss < LOSS_best:
         LOSS_best = avg_loss
-        model_out_path = opt.path_to_save + "/model_best.pth".format(epoch)
+        model_out_path = opt.path_to_save + "/model_best.pth"
         torch.save(model.module.state_dict(), model_out_path)
         print("Checkpoint saved to {}".format(model_out_path))
 
