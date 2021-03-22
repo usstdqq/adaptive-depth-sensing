@@ -4,6 +4,8 @@ A PyTorch implementation of the paper:
 
 ## Introduction
 
+<img src='figs/00025_out.gif' width=800>
+
 <img src='figs/pipeline.png' width=800>
 
 The proposed pipeline contains two submodules, adaptive depth sampling (N etM ) and depth reconstruction (N etE). The binary adaptive sampling mask is generated based on the RGB image. Then, the LiDAR samples the scene based on the binary sampling mask and generate the sampled sparse depth map. Finally, both RGB image and sampled sparse depth map are applied to estimate the dense depth map.
