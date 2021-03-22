@@ -548,7 +548,7 @@ class NetM(nn.Module):
         return [param for name, param in self.named_parameters() if 'bias' in name]
     
 class NetME_RGBSparseD2Dense(nn.Module):
-    def __init__(self, NetE_path, NetSP_path, sample_rate, img_height, img_width, down_size, batch_size, temperature_init, kernel_size=7):
+    def __init__(self, NetE_path, NetSP_path, sample_rate, img_height, img_width, down_size, batch_size, temperature_init, kernel_size=5):
         super(NetME_RGBSparseD2Dense, self).__init__()
         self.netM = NetM(NetSP_path, sample_rate, img_height, img_width, down_size, batch_size, temperature_init, kernel_size)
         self.netE = ResNet(layers=18, decoder='deconv2', output_size=(img_height, img_width), in_channels=4, pretrained=True)

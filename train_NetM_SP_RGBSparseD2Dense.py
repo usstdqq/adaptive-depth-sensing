@@ -59,12 +59,12 @@ parser.add_argument('--seed', type=int, default=123, help='random seed to use. D
 parser.add_argument('--train_data_csv_path', type=str, default="/home/dqq/Data/KITTI/inpainted/train.csv", help='path to train_csv')
 parser.add_argument('--val_data_csv_path', type=str, default="/home/dqq/Data/KITTI/inpainted/val.csv", help='path to val_csv')
 parser.add_argument('--path_to_save', type=str, default="epochs_NetM_RGBSparseD_wd", help='path to save trained models')
-parser.add_argument('--path_to_tensorboard_log', type=str, default="tensorBoardRuns/NetM-SP-RGBSparseD-linear-bilinear-clip-batch-8-240x960-crop-default-epoch-100-lr-00001-decay-slic-w-0000001-pos-w-1-proj-w-0-anneal-temp-1-01-ADAM-SGD-c-00025-L1-loss-03-16-2021", help='path to tensorboard logging')
+parser.add_argument('--path_to_tensorboard_log', type=str, default="tensorBoardRuns/NetM-SP-RGBSparseD-linear-bilinear-clip-batch-8-240x960-crop-default-epoch-100-lr-00001-decay-slic-w-0000001-pos-w-1-proj-w-0-fix-temp-1-k-5-ADAM-SGD-c-00025-L1-loss-03-21-2021", help='path to tensorboard logging')
 parser.add_argument('--path_to_NetE_pre', type=str, default="epochs_S2D_RGBSparseD_wd_2021-03-14 22:43:21.459797/model_epoch_100.pth", help='path to tensorboard logging')
 parser.add_argument('--path_to_NetSP_pre', type=str, default="epochs_SuperPixeFCN_color_2021-03-06 20:47:57.179621/model_epoch_100.pth", help='path to tensorboard logging')
 parser.add_argument('--device_ids', type=list, default=[0, 1], help='path to tensorboard logging')
 parser.add_argument('--nef', type=int, default=16, help='number of encoder filters in first conv layer')
-
+parser.add_argument('--kernel_size', type=int, default=5, help='SSA window size')
 
 opt = parser.parse_args()
 
@@ -120,7 +120,7 @@ train_loader = DataLoader(dataset=train_set, num_workers=opt.threads, batch_size
 val_loader   = DataLoader(dataset=val_set,   num_workers=opt.threads, batch_size=opt.batch_size, shuffle=False)
 
 print('===> Building model...')
-modelME = NetME_RGBSparseD2Dense(opt.path_to_NetE_pre, opt.path_to_NetSP_pre, opt.sample_rate, opt.img_height, opt.img_width, opt.downsize, opt.batch_size, opt.temperature)
+modelME = NetME_RGBSparseD2Dense(opt.path_to_NetE_pre, opt.path_to_NetSP_pre, opt.sample_rate, opt.img_height, opt.img_width, opt.downsize, opt.batch_size, opt.temperature, opt.kernel_size)
 modelME = nn.DataParallel(modelME, device_ids=opt.device_ids) #multi-GPU
 criterion_mse = MaskedMSELoss()
 criterion_depth = MaskedL1Loss()
@@ -181,8 +181,7 @@ def train(epoch):
     lr = opt.lr * (0.5 ** (epoch // (opt.nEpochs // 5)))
     
     # setup temperature for SSA
-    temperature = opt.temperature * (1 - 0.9 * epoch / opt.nEpochs)
-    
+    temperature = opt.temperature
     modelME.module.netM.temperature.fill_(temperature)
     
     # use ADAM for the first 2 epoch, then SGD, to speedup training
