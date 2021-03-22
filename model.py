@@ -24,6 +24,12 @@ import matplotlib.pyplot as plt
 
 import time
 
+
+THIS_PATH = os.path.dirname(__file__)
+sys.path.append(os.path.join(THIS_PATH, "fusion_models"))
+from fusion_models.model import uncertainty_net
+
+
 RGB_MEAN = 0.5
 RGB_STD = 0.5
 
@@ -31,6 +37,7 @@ DEPTH_MIN = 0.0
 DEPTH_MAX = 100.0
 
 EPS = 0.00001
+
 
 class Unpool(nn.Module):
     # Unpool: 2*2 unpooling with zero padding
@@ -548,11 +555,12 @@ class NetM(nn.Module):
         return [param for name, param in self.named_parameters() if 'bias' in name]
     
 class NetME_RGBSparseD2Dense(nn.Module):
-    def __init__(self, NetE_path, NetSP_path, sample_rate, img_height, img_width, down_size, batch_size, temperature_init, kernel_size=7):
+    def __init__(self, NetE_path, NetSP_path, sample_rate, img_height, img_width, down_size, batch_size, temperature_init, kernel_size=5):
         super(NetME_RGBSparseD2Dense, self).__init__()
         self.netM = NetM(NetSP_path, sample_rate, img_height, img_width, down_size, batch_size, temperature_init, kernel_size)
-        self.netE = ResNet(layers=18, decoder='deconv2', output_size=(img_height, img_width), in_channels=4, pretrained=True)
+        self.netE = uncertainty_net(in_channels=4, thres=0)
             
+        # import pdb; pdb.set_trace()
         self.netE.load_state_dict(torch.load(NetE_path))
 
     def forward(self, img_rgb, img_depth, is_soft):
@@ -566,9 +574,9 @@ class NetME_RGBSparseD2Dense(nn.Module):
         
         rgb_sparse_d_input = torch.cat((img_rgb, sparse_depth), 1) # white input
         
-        x_recon = self.netE(rgb_sparse_d_input)
+        x_recon, lidar_out, precise, guide = self.netE(rgb_sparse_d_input)
         
-        return x_recon, mask_soft, mask_binary, pooled_xy_tensor, reconstr_xy_tensor, curr_spixl_map, prob
+        return x_recon, lidar_out, precise, guide, mask_soft, mask_binary, pooled_xy_tensor, reconstr_xy_tensor, curr_spixl_map, prob
     
 def draw_grid(img, line_color=(0, 255, 0), thickness=1, type_=cv2.LINE_AA, pxstep=10):
     '''(ndarray, 3-tuple, int, int) -> void

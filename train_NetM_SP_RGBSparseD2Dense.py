@@ -24,7 +24,7 @@ from model import NetME_RGBSparseD2Dense
 from tensorboard_logger import configure, log_value, log_images
 from loss import MaskedMSELoss, MaskedL1Loss
 from metrics import AverageMeter, Result
-from dataloaders.data_utils import KITTI_Dataset
+from dataloaders.data_utils_nyuv2 import NYUDataset
 
 from superpixel_fcn.train_util import init_spixel_grid, rgb2Lab_torch, update_spixl_map, build_LABXY_feat
 from superpixel_fcn.loss import compute_pos_loss, compute_color_pos_loss
@@ -36,11 +36,11 @@ from skimage.segmentation import mark_boundaries
 parser = argparse.ArgumentParser(description='PyTorch NetRGBM-NetE')
 parser.add_argument('--sample_rate', type=int, default=0.0025, help="sample rate for pixel interpolation")
 parser.add_argument('--downsize', type=float, default=20, help='grid cell size for superpixel training')
-parser.add_argument('--img_width', type=int, default=960, help="default train image width")
+parser.add_argument('--img_width', type=int, default=320, help="default train image width")
 parser.add_argument('--img_height', type=int, default=240, help="default train image height")
-parser.add_argument('--train_img_width', type=int, default=960, help="default train image width")
+parser.add_argument('--train_img_width', type=int, default=320, help="default train image width")
 parser.add_argument('--train_img_height', type=int, default=240, help="default train image height")
-parser.add_argument('--input_img_width', type=int, default=960, help="default train image width")
+parser.add_argument('--input_img_width', type=int, default=320, help="default train image width")
 parser.add_argument('--input_img_height', type=int, default=240, help="default train image height")
 parser.add_argument('--batch_size', type=int, default=8, help='training batch size')
 parser.add_argument('--temperature', type=float, default=1.0, help='training batch size')
@@ -48,7 +48,7 @@ parser.add_argument('--nEpochs', type=int, default=100, help='number of epochs f
 parser.add_argument('--lr', type=float, default=0.0001, help='Learning Rate. Default=0.0002')
 parser.add_argument('--momentum', type=float, default=0.9, help='momentum for SGD')
 parser.add_argument('--beta', type=float, default=0.999, help='Adam momentum term. Default=0.999')
-parser.add_argument('--weight_decay', type=float, default=4e-4, help='weight_decay')
+parser.add_argument('--weight_decay', type=float, default=1e-4, help='weight_decay')
 parser.add_argument('--bias_decay', type=float, default=0.0, help='weight_decay')
 parser.add_argument('--pos_weight', type=float, default=1, help='inside slic loss')
 parser.add_argument('--slic_weight', type=float, default=0.000001, help='to enforce regular shape of super pixel')
@@ -56,15 +56,19 @@ parser.add_argument('--proj_weight', type=float, default=0.0, help='to enforce r
 parser.add_argument('--cuda', type=bool, default=True, help='use cuda?')
 parser.add_argument('--threads', type=int, default=8, help='number of threads for data loader to use')
 parser.add_argument('--seed', type=int, default=123, help='random seed to use. Default=123')
-parser.add_argument('--train_data_csv_path', type=str, default="/home/dqq/Data/KITTI/inpainted/train.csv", help='path to train_csv')
-parser.add_argument('--val_data_csv_path', type=str, default="/home/dqq/Data/KITTI/inpainted/val.csv", help='path to val_csv')
+parser.add_argument('--train_data_path', type=str, default="/home/dqq/Data/nyudepthv2_h5/train", help='path to train_csv')
+parser.add_argument('--val_data_path', type=str, default="/home/dqq/Data/nyudepthv2_h5/val", help='path to val_csv')
 parser.add_argument('--path_to_save', type=str, default="epochs_NetM_RGBSparseD_wd", help='path to save trained models')
-parser.add_argument('--path_to_tensorboard_log', type=str, default="tensorBoardRuns/NetM-SP-RGBSparseD-linear-bilinear-clip-batch-8-240x960-crop-default-epoch-100-lr-00001-decay-slic-w-0000001-pos-w-1-proj-w-0-anneal-temp-1-01-ADAM-SGD-c-00025-L1-loss-03-16-2021", help='path to tensorboard logging')
-parser.add_argument('--path_to_NetE_pre', type=str, default="epochs_S2D_RGBSparseD_wd_2021-03-14 22:43:21.459797/model_epoch_100.pth", help='path to tensorboard logging')
-parser.add_argument('--path_to_NetSP_pre', type=str, default="epochs_SuperPixeFCN_color_2021-03-06 20:47:57.179621/model_epoch_100.pth", help='path to tensorboard logging')
+parser.add_argument('--path_to_tensorboard_log', type=str, default="tensorBoardRuns/NetM-SP-FusionNet-linear-bilinear-clip-batch-8-240x960-crop-default-epoch-100-lr-00001-decay-slic-w-0000001-pos-w-1-proj-w-0-fix-temp-1-k-5-ADAM-SGD-c-00025-L1-loss-03-22-2021", help='path to tensorboard logging')
+parser.add_argument('--path_to_NetE_pre', type=str, default="epochs_S2D_RGBSparseD_wd_2021-03-19 00:55:02.108664/model_epoch_100.pth", help='path to tensorboard logging')
+parser.add_argument('--path_to_NetSP_pre', type=str, default="epochs_SuperPixeFCN_color_2020-10-30 23:50:25.009908/model_epoch_175.pth", help='path to tensorboard logging')
 parser.add_argument('--device_ids', type=list, default=[0, 1], help='path to tensorboard logging')
 parser.add_argument('--nef', type=int, default=16, help='number of encoder filters in first conv layer')
-
+parser.add_argument('--kernel_size', type=int, default=5, help='SSA window size')
+parser.add_argument('--wlid', type=float, default=0.1, help="weight base loss")
+parser.add_argument('--wrgb', type=float, default=0.1, help="weight base loss")
+parser.add_argument('--wpred', type=float, default=1, help="weight base loss")
+parser.add_argument('--wguide', type=float, default=0.1, help="weight base loss")
 
 opt = parser.parse_args()
 
@@ -113,14 +117,14 @@ print('===> Loading datasets...')
 # Please set the path to training and validation data here
 # Suggest to put the data in SSD to get better data IO speed
 
-train_set = KITTI_Dataset(opt.train_data_csv_path, True)
-val_set   = KITTI_Dataset(opt.val_data_csv_path,   False)
+train_set = NYUDataset(opt.train_data_path, type='train', modality='rgb', sparsifier=None)
+val_set   = NYUDataset(opt.val_data_path,   type='val',   modality='rgb', sparsifier=None)
 
 train_loader = DataLoader(dataset=train_set, num_workers=opt.threads, batch_size=opt.batch_size, shuffle=True )
-val_loader   = DataLoader(dataset=val_set,   num_workers=opt.threads, batch_size=opt.batch_size, shuffle=False)
+val_loader   = DataLoader(dataset=val_set,   num_workers=opt.threads, batch_size=4, shuffle=False)
 
 print('===> Building model...')
-modelME = NetME_RGBSparseD2Dense(opt.path_to_NetE_pre, opt.path_to_NetSP_pre, opt.sample_rate, opt.img_height, opt.img_width, opt.downsize, opt.batch_size, opt.temperature)
+modelME = NetME_RGBSparseD2Dense(opt.path_to_NetE_pre, opt.path_to_NetSP_pre, opt.sample_rate, opt.img_height, opt.img_width, opt.downsize, opt.batch_size, opt.temperature, opt.kernel_size)
 modelME = nn.DataParallel(modelME, device_ids=opt.device_ids) #multi-GPU
 criterion_mse = MaskedMSELoss()
 criterion_depth = MaskedL1Loss()
@@ -137,17 +141,15 @@ print(modelME)
 print('===> Parameters:', sum(param.numel() for param in modelME.parameters()))
 
 print('===> Initialize Optimizer...')      
-optimizer = optim.Adam([{'params': modelME.module.netM.bias_parameters(), 'lr': opt.lr, 'weight_decay': opt.bias_decay},
-                        {'params': modelME.module.netM.weight_parameters(), 'lr': opt.lr, 'weight_decay': opt.weight_decay},
-                        {'params': modelME.module.netE.bias_parameters(), 'lr': 0.0, 'weight_decay': opt.bias_decay},
-                        {'params': modelME.module.netE.weight_parameters(), 'lr': 0.0, 'weight_decay': opt.weight_decay}
-                        ], lr=opt.lr, betas=(opt.momentum, opt.beta))
+# optimizer = optim.Adam([{'params': modelME.module.netM.bias_parameters(), 'lr': opt.lr, 'weight_decay': opt.bias_decay},
+#                         {'params': modelME.module.netM.weight_parameters(), 'lr': opt.lr, 'weight_decay': opt.weight_decay},
+#                         {'params': modelME.module.netE.parameters(), 'lr': 0.0, 'weight_decay': opt.weight_decay},
+#                         ], lr=opt.lr, betas=(opt.momentum, opt.beta))
 
-# optimizer = optim.SGD([{'params': modelME.module.netM.bias_parameters(), 'lr': opt.lr, 'weight_decay': opt.bias_decay},
-#                        {'params': modelME.module.netM.weight_parameters(), 'lr': opt.lr, 'weight_decay': opt.weight_decay},
-#                        {'params': modelME.module.netE.bias_parameters(), 'lr': 0.0, 'weight_decay': opt.bias_decay},
-#                        {'params': modelME.module.netE.weight_parameters(), 'lr': 0.0, 'weight_decay': opt.weight_decay}
-#                        ], lr=opt.lr, momentum=opt.momentum)
+optimizer = optim.SGD([{'params': modelME.module.netM.bias_parameters(), 'lr': opt.lr, 'weight_decay': opt.bias_decay},
+                        {'params': modelME.module.netM.weight_parameters(), 'lr': opt.lr, 'weight_decay': opt.weight_decay},
+                        {'params': modelME.module.netE.parameters(), 'lr': 0.0, 'weight_decay': opt.bias_decay},
+                        ], lr=opt.lr, momentum=opt.momentum)
 
 
 print('===> Initialize Logger...')     
@@ -181,22 +183,19 @@ def train(epoch):
     lr = opt.lr * (0.5 ** (epoch // (opt.nEpochs // 5)))
     
     # setup temperature for SSA
-    temperature = opt.temperature * (1 - 0.9 * epoch / opt.nEpochs)
-    
+    temperature = opt.temperature
     modelME.module.netM.temperature.fill_(temperature)
     
     # use ADAM for the first 2 epoch, then SGD, to speedup training
     if epoch <=2:
-        optimizer = optim.Adam([{'params': modelME.module.netM.bias_parameters(), 'lr': opt.lr, 'weight_decay': opt.bias_decay},
-                                {'params': modelME.module.netM.weight_parameters(), 'lr': opt.lr, 'weight_decay': opt.weight_decay},
-                                {'params': modelME.module.netE.bias_parameters(), 'lr': 0.0, 'weight_decay': opt.bias_decay},
-                                {'params': modelME.module.netE.weight_parameters(), 'lr': 0.0, 'weight_decay': opt.weight_decay}
+        optimizer = optim.Adam([{'params': modelME.module.netM.bias_parameters(), 'lr': lr, 'weight_decay': opt.bias_decay},
+                                {'params': modelME.module.netM.weight_parameters(), 'lr': lr, 'weight_decay': opt.weight_decay},
+                                {'params': modelME.module.netE.parameters(), 'lr': 0.0, 'weight_decay': opt.weight_decay}
                                 ], lr=lr, betas=(opt.momentum, opt.beta))
     else:
-        optimizer = optim.SGD([{'params': modelME.module.netM.bias_parameters(), 'lr': opt.lr, 'weight_decay': opt.bias_decay},
-                               {'params': modelME.module.netM.weight_parameters(), 'lr': opt.lr, 'weight_decay': opt.weight_decay},
-                               {'params': modelME.module.netE.bias_parameters(), 'lr': 0.0, 'weight_decay': opt.bias_decay},
-                               {'params': modelME.module.netE.weight_parameters(), 'lr': 0.0, 'weight_decay': opt.weight_decay}
+        optimizer = optim.SGD([{'params': modelME.module.netM.bias_parameters(), 'lr': lr, 'weight_decay': opt.bias_decay},
+                               {'params': modelME.module.netM.weight_parameters(), 'lr': lr, 'weight_decay': opt.weight_decay},
+                               {'params': modelME.module.netE.parameters(), 'lr': 0.0, 'weight_decay': opt.weight_decay}
                                ], lr=lr, momentum=opt.momentum)
 
     for iteration, batch in enumerate(train_loader, 1):
@@ -221,12 +220,18 @@ def train(epoch):
         end = time.time()
         optimizer.zero_grad()
         
-        depth_recon, corrupt_mask_soft, corrupt_mask_binary, pooled_xy_tensor, reconstr_xy_tensor, curr_spixl_map, prob = modelME(image_target, depth_input, True)
+        depth_recon, lidar_out, precise, guide, corrupt_mask_soft, corrupt_mask_binary, pooled_xy_tensor, reconstr_xy_tensor, curr_spixl_map, prob = modelME(image_target, depth_input, True)
     
         mask_sparsity = corrupt_mask_binary.sum() / (corrupt_mask_binary.shape[0] * corrupt_mask_binary.shape[1] * corrupt_mask_binary.shape[2] * corrupt_mask_binary.shape[3])
 
         batch_size_cur = image_target.shape[0]
         loss_depth = criterion_depth(depth_recon, depth_target, depth_mask)
+        loss_lidar = criterion_depth(lidar_out[:,[0],:,:], depth_target, depth_mask)
+        loss_rgb = criterion_depth(precise, depth_target, depth_mask)
+        loss_guide = criterion_depth(guide, depth_target, depth_mask)
+        
+        loss_depth = opt.wpred*loss_depth + opt.wlid*loss_lidar + opt.wrgb*loss_rgb + opt.wguide*loss_guide
+        
         loss_mse = criterion_mse(depth_recon, depth_target, depth_mask) # in [0, 1 range]
         loss_slic, loss_color, loss_pos = compute_color_pos_loss(prob, image_target_labxy_feat_tensor[:batch_size_cur,:,:,:], pos_weight= opt.pos_weight, kernel_size=opt.downsize)
 
@@ -353,7 +358,7 @@ def val(epoch):
         # compute output
         end = time.time()
         with torch.no_grad():
-            depth_recon, corrupt_mask_soft, corrupt_mask_binary, pooled_xy_tensor, reconstr_xy_tensor, curr_spixl_map, prob = modelME(image_target, depth_input, False)
+            depth_recon, lidar_out, precise, guide, corrupt_mask_soft, corrupt_mask_binary, pooled_xy_tensor, reconstr_xy_tensor, curr_spixl_map, prob = modelME(image_target, depth_input, False)
         
         torch.cuda.synchronize()
 
@@ -365,7 +370,7 @@ def val(epoch):
         rgb_sparse_d_input = torch.cat((image_target, depth_input), 1) # white input
         
         with torch.no_grad():
-            restored_depth = modelME.module.netE(rgb_sparse_d_input)
+            restored_depth, lidar_out, precise, guide, = modelME.module.netE(rgb_sparse_d_input)
         
         torch.cuda.synchronize()
         gpu_time = time.time() - end
@@ -435,23 +440,23 @@ def val(epoch):
     log_value('val_loss_pos', avg_loss_pos / frame_count, epoch)
    
     #   Draw the last image result
-    spixl_map = update_spixl_map(val_spixelID[[-1],:,:,:], prob[[-1],:,:,:]) # 1x1x240x960
+    spixl_map = update_spixl_map(val_spixelID[[0],:,:,:], prob[[0],:,:,:]) # 1x1x240x960
     ori_sz_spixel_map =  F.interpolate(spixl_map.type(torch.float), size=(opt.input_img_height, opt.input_img_width), mode='nearest').type(torch.int)  # 1x1x240x960
     spix_index_np = ori_sz_spixel_map.squeeze().detach().cpu().numpy().transpose(0, 1) #240x960
     spix_index_np = spix_index_np.astype(np.int64) #240x960, 1% here
-    image_rgb_np = image_target[[-1],:,:,:].squeeze().clamp(0, 1).detach().cpu().numpy().transpose(1, 2, 0)
+    image_rgb_np = image_target[[0],:,:,:].squeeze().clamp(0, 1).detach().cpu().numpy().transpose(1, 2, 0)
     spixel_bd_image = mark_boundaries(image_rgb_np, spix_index_np.astype(int), color=(0, 1, 1))
     spixel_viz = spixel_bd_image.astype(np.float32).transpose(2, 0, 1)
     spixel_viz = np.expand_dims(spixel_viz, axis=0)
     
     log_images('image_target_spixel', reshape_4D_array(spixel_viz, 1), step=1)
     
-    log_images('depth_input', reshape_4D_array(depth_input[[-1],:,:,:].data.cpu().numpy(), 1), step=1)
-    log_images('depth_prediction', reshape_4D_array(restored_depth[[-1],:,:,:].data.cpu().numpy(), 1), step=1)
-    log_images('depth_target', reshape_4D_array(depth_target[[-1],:,:,:].data.cpu().numpy(), 1), step=1)
-    log_images('image_target', reshape_4D_array(image_target[[-1],:,:,:].data.cpu().numpy(), 1), step=1)   
-    log_images('corrupt_mask_binary', reshape_4D_array(corrupt_mask_binary[[-1],:,:,:].data.cpu().numpy(), 1), step=1)
-    log_images('corrupt_mask_soft', reshape_4D_array(corrupt_mask_soft[[-1],:,:,:].data.cpu().numpy(), 1), step=1)
+    log_images('depth_input', reshape_4D_array(depth_input[[0],:,:,:].data.cpu().numpy(), 1), step=1)
+    log_images('depth_prediction', reshape_4D_array(restored_depth[[0],:,:,:].data.cpu().numpy(), 1), step=1)
+    log_images('depth_target', reshape_4D_array(depth_target[[0],:,:,:].data.cpu().numpy(), 1), step=1)
+    log_images('image_target', reshape_4D_array(image_target[[0],:,:,:].data.cpu().numpy(), 1), step=1)   
+    log_images('corrupt_mask_binary', reshape_4D_array(corrupt_mask_binary[[0],:,:,:].data.cpu().numpy(), 1), step=1)
+    log_images('corrupt_mask_soft', reshape_4D_array(corrupt_mask_soft[[0],:,:,:].data.cpu().numpy(), 1), step=1)
         
 
     global LOSS_best
@@ -519,7 +524,7 @@ def val_rand(epoch):
         # compute output
         end = time.time()
         with torch.no_grad():
-            depth_prediction = modelME.module.netE(rgb_sparse_d_input)
+            depth_prediction, lidar_out, precise, guide, = modelME.module.netE(rgb_sparse_d_input)
             
         torch.cuda.synchronize()
         gpu_time = time.time() - end
