@@ -44,7 +44,7 @@ and then extract it into `$data` directory. Modify the path of `$data` directory
 
 Run
 ```
-python train_SparseD2DenseD.py
+python train_RGBSparseD2DenseD.py
 ```
 to train the RGB and Sparse Depth Completion network NetE.
 
@@ -60,7 +60,7 @@ to train the FCN super pixel network using the SLIC loss. NetFCN is used as init
 
 After NetE and NetFCN are trained, modify the file name of trained NetE in line#29 of file train_NetM.py and run
 ```
-python train_NetM.py
+python train_NetM_SP_RGBSparseD2Dense.py
 ```
 to train the adaptive image sampling network NetM.
 
@@ -68,16 +68,3 @@ To visualize the training process, run
 ```
 tensorboard --logdir tensorBoardRuns
 ```
-
-### Test NetE
-```
-python test_NetE_h5.py
-```
-The output reconstructed images are in `results/netE_results` directory.
-
-### Test NetM
-```
-python test_NetM_h5.py
-```
-The output reconstructed images are in `results/netM_results` directory.
-
