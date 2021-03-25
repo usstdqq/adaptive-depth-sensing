@@ -1,6 +1,6 @@
 # Adaptive Depth Sampling using Deep Learning
 A PyTorch implementation of the paper:
-[Adaptive Illumination based Depth Sensing using Deep Learning] [[Arxiv Preprint]](TBD) 
+[Adaptive Illumination based Depth Sensing using Deep Learning] [[Arxiv Preprint]](https://arxiv.org/abs/2103.12297) 
 
 ## Introduction
 
