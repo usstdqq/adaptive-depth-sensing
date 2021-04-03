@@ -11,6 +11,7 @@ import argparse
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+import torchvision.transforms as transforms
 import time
 import datetime
 import numpy as np
@@ -26,11 +27,13 @@ from loss import MaskedMSELoss, MaskedL1Loss
 from metrics import AverageMeter, Result
 from dataloaders.data_utils_nyuv2 import NYUDataset
 
-from superpixel_fcn.train_util import init_spixel_grid, rgb2Lab_torch, update_spixl_map, build_LABXY_feat
+from superpixel_fcn.train_util import init_IDX_XY_grid, init_spixel_grid, rgb2Lab_torch, update_spixl_map, build_LABXY_feat
 from superpixel_fcn.loss import compute_pos_loss, compute_color_pos_loss
 
 from skimage.segmentation import mark_boundaries
 
+RGB_MEAN = 0.5
+RGB_STD = 0.5
 
 # Training settings
 parser = argparse.ArgumentParser(description='PyTorch NetRGBM-NetE')
@@ -45,13 +48,13 @@ parser.add_argument('--input_img_height', type=int, default=240, help="default t
 parser.add_argument('--batch_size', type=int, default=8, help='training batch size')
 parser.add_argument('--temperature', type=float, default=1.0, help='training batch size')
 parser.add_argument('--nEpochs', type=int, default=100, help='number of epochs for training')
-parser.add_argument('--lr', type=float, default=0.0001, help='Learning Rate. Default=0.0002')
+parser.add_argument('--lr', type=float, default=0.00001, help='Learning Rate. Default=0.0002')
 parser.add_argument('--momentum', type=float, default=0.9, help='momentum for SGD')
 parser.add_argument('--beta', type=float, default=0.999, help='Adam momentum term. Default=0.999')
-parser.add_argument('--weight_decay', type=float, default=1e-4, help='weight_decay')
+parser.add_argument('--weight_decay', type=float, default=4e-4, help='weight_decay')
 parser.add_argument('--bias_decay', type=float, default=0.0, help='weight_decay')
 parser.add_argument('--pos_weight', type=float, default=1, help='inside slic loss')
-parser.add_argument('--slic_weight', type=float, default=0.000001, help='to enforce regular shape of super pixel')
+parser.add_argument('--slic_weight', type=float, default=0.0000001, help='to enforce regular shape of super pixel')
 parser.add_argument('--proj_weight', type=float, default=0.0, help='to enforce regular shape of super pixel')
 parser.add_argument('--cuda', type=bool, default=True, help='use cuda?')
 parser.add_argument('--threads', type=int, default=8, help='number of threads for data loader to use')
@@ -59,16 +62,12 @@ parser.add_argument('--seed', type=int, default=123, help='random seed to use. D
 parser.add_argument('--train_data_path', type=str, default="/home/dqq/Data/nyudepthv2_h5/train", help='path to train_csv')
 parser.add_argument('--val_data_path', type=str, default="/home/dqq/Data/nyudepthv2_h5/val", help='path to val_csv')
 parser.add_argument('--path_to_save', type=str, default="epochs_NetM_RGBSparseD_wd", help='path to save trained models')
-parser.add_argument('--path_to_tensorboard_log', type=str, default="tensorBoardRuns/NetM-SP-FusionNet-linear-bilinear-clip-batch-8-240x960-crop-default-epoch-100-lr-00001-decay-slic-w-0000001-pos-w-1-proj-w-0-fix-temp-1-k-5-ADAM-SGD-c-00025-L1-loss-03-22-2021", help='path to tensorboard logging')
-parser.add_argument('--path_to_NetE_pre', type=str, default="epochs_S2D_RGBSparseD_wd_2021-03-19 00:55:02.108664/model_epoch_100.pth", help='path to tensorboard logging')
+parser.add_argument('--path_to_tensorboard_log', type=str, default="tensorBoardRuns/NetM-SP-RGBSparseD-linear-bilinear-clip-batch-8-240x960-crop-default-epoch-100-lr-000001-decay-slic-w-00000001-pos-w-1-proj-w-0-anneal-temp-1-01-ADAM-c-00025-MSE-loss-04-03-2021", help='path to tensorboard logging')
+parser.add_argument('--path_to_NetE_pre', type=str, default="epochs_S2D_RGBSparseD_wd_2020-11-02 21:59:20.677728/model_epoch_100.pth", help='path to tensorboard logging')
 parser.add_argument('--path_to_NetSP_pre', type=str, default="epochs_SuperPixeFCN_color_2020-10-30 23:50:25.009908/model_epoch_175.pth", help='path to tensorboard logging')
 parser.add_argument('--device_ids', type=list, default=[0, 1], help='path to tensorboard logging')
 parser.add_argument('--nef', type=int, default=16, help='number of encoder filters in first conv layer')
-parser.add_argument('--kernel_size', type=int, default=5, help='SSA window size')
-parser.add_argument('--wlid', type=float, default=0.1, help="weight base loss")
-parser.add_argument('--wrgb', type=float, default=0.1, help="weight base loss")
-parser.add_argument('--wpred', type=float, default=1, help="weight base loss")
-parser.add_argument('--wguide', type=float, default=0.1, help="weight base loss")
+
 
 opt = parser.parse_args()
 
@@ -124,10 +123,10 @@ train_loader = DataLoader(dataset=train_set, num_workers=opt.threads, batch_size
 val_loader   = DataLoader(dataset=val_set,   num_workers=opt.threads, batch_size=4, shuffle=False)
 
 print('===> Building model...')
-modelME = NetME_RGBSparseD2Dense(opt.path_to_NetE_pre, opt.path_to_NetSP_pre, opt.sample_rate, opt.img_height, opt.img_width, opt.downsize, opt.batch_size, opt.temperature, opt.kernel_size)
+modelME = NetME_RGBSparseD2Dense(opt.path_to_NetE_pre, opt.path_to_NetSP_pre, opt.sample_rate, opt.img_height, opt.img_width, opt.downsize, opt.batch_size, opt.temperature)
 modelME = nn.DataParallel(modelME, device_ids=opt.device_ids) #multi-GPU
 criterion_mse = MaskedMSELoss()
-criterion_depth = MaskedL1Loss()
+criterion_depth = MaskedMSELoss()
 
 if torch.cuda.is_available():
     modelME = modelME.cuda()    
@@ -141,15 +140,16 @@ print(modelME)
 print('===> Parameters:', sum(param.numel() for param in modelME.parameters()))
 
 print('===> Initialize Optimizer...')      
-# optimizer = optim.Adam([{'params': modelME.module.netM.bias_parameters(), 'lr': opt.lr, 'weight_decay': opt.bias_decay},
-#                         {'params': modelME.module.netM.weight_parameters(), 'lr': opt.lr, 'weight_decay': opt.weight_decay},
-#                         {'params': modelME.module.netE.parameters(), 'lr': 0.0, 'weight_decay': opt.weight_decay},
-#                         ], lr=opt.lr, betas=(opt.momentum, opt.beta))
-
-optimizer = optim.SGD([{'params': modelME.module.netM.bias_parameters(), 'lr': opt.lr, 'weight_decay': opt.bias_decay},
+optimizer = optim.Adam([{'params': modelME.module.netM.bias_parameters(), 'lr': opt.lr, 'weight_decay': opt.bias_decay},
                         {'params': modelME.module.netM.weight_parameters(), 'lr': opt.lr, 'weight_decay': opt.weight_decay},
-                        {'params': modelME.module.netE.parameters(), 'lr': 0.0, 'weight_decay': opt.bias_decay},
-                        ], lr=opt.lr, momentum=opt.momentum)
+                        {'params': modelME.module.netE.parameters(), 'lr': 0.0, 'weight_decay': opt.bias_decay}
+                        ], lr=opt.lr, betas=(opt.momentum, opt.beta))
+
+# optimizer = optim.SGD([{'params': modelME.module.netM.bias_parameters(), 'lr': opt.lr, 'weight_decay': opt.bias_decay},
+#                        {'params': modelME.module.netM.weight_parameters(), 'lr': opt.lr, 'weight_decay': opt.weight_decay},
+#                        {'params': modelME.module.netE.bias_parameters(), 'lr': 0.0, 'weight_decay': opt.bias_decay},
+#                        {'params': modelME.module.netE.weight_parameters(), 'lr': 0.0, 'weight_decay': opt.weight_decay}
+#                        ], lr=opt.lr, momentum=opt.momentum)
 
 
 print('===> Initialize Logger...')     
@@ -175,29 +175,26 @@ def train(epoch):
     
     average_meter = AverageMeter()
     
-    # train/eval modes make difference on batch normalization layer
+    #	train/eval modes make difference on batch normalization layer
     modelME.module.netM.train()
     modelME.module.netE.eval()
     
-    # setup learning rate decay
+    # Step up learning rate decay
     lr = opt.lr * (0.5 ** (epoch // (opt.nEpochs // 5)))
+    # lr = opt.lr
     
-    # setup temperature for SSA
-    temperature = opt.temperature
+    temperature = opt.temperature * (1 - 0.9 * epoch / opt.nEpochs)
+    # temperature = opt.temperature * (0.5 ** (epoch // (opt.nEpochs // 4)))
+    
     modelME.module.netM.temperature.fill_(temperature)
     
-    # use ADAM for the first 2 epoch, then SGD, to speedup training
-    if epoch <=2:
-        optimizer = optim.Adam([{'params': modelME.module.netM.bias_parameters(), 'lr': lr, 'weight_decay': opt.bias_decay},
-                                {'params': modelME.module.netM.weight_parameters(), 'lr': lr, 'weight_decay': opt.weight_decay},
-                                {'params': modelME.module.netE.parameters(), 'lr': 0.0, 'weight_decay': opt.weight_decay}
-                                ], lr=lr, betas=(opt.momentum, opt.beta))
-    else:
-        optimizer = optim.SGD([{'params': modelME.module.netM.bias_parameters(), 'lr': lr, 'weight_decay': opt.bias_decay},
-                               {'params': modelME.module.netM.weight_parameters(), 'lr': lr, 'weight_decay': opt.weight_decay},
-                               {'params': modelME.module.netE.parameters(), 'lr': 0.0, 'weight_decay': opt.weight_decay}
-                               ], lr=lr, momentum=opt.momentum)
-
+    optimizer = optim.Adam([{'params': modelME.module.netM.bias_parameters(), 'lr': opt.lr, 'weight_decay': opt.bias_decay},
+                        {'params': modelME.module.netM.weight_parameters(), 'lr': opt.lr, 'weight_decay': opt.weight_decay},
+                        {'params': modelME.module.netE.parameters(), 'lr': 0.0, 'weight_decay': opt.weight_decay}
+                        ], lr=lr, betas=(opt.momentum, opt.beta))
+            
+    
+    idx = 0
     for iteration, batch in enumerate(train_loader, 1):
         image_target, depth_target, depth_mask = Variable(batch[0]), Variable(batch[1]), Variable(batch[2])
         
@@ -226,12 +223,6 @@ def train(epoch):
 
         batch_size_cur = image_target.shape[0]
         loss_depth = criterion_depth(depth_recon, depth_target, depth_mask)
-        loss_lidar = criterion_depth(lidar_out[:,[0],:,:], depth_target, depth_mask)
-        loss_rgb = criterion_depth(precise, depth_target, depth_mask)
-        loss_guide = criterion_depth(guide, depth_target, depth_mask)
-        
-        loss_depth = opt.wpred*loss_depth + opt.wlid*loss_lidar + opt.wrgb*loss_rgb + opt.wguide*loss_guide
-        
         loss_mse = criterion_mse(depth_recon, depth_target, depth_mask) # in [0, 1 range]
         loss_slic, loss_color, loss_pos = compute_color_pos_loss(prob, image_target_labxy_feat_tensor[:batch_size_cur,:,:,:], pos_weight= opt.pos_weight, kernel_size=opt.downsize)
 
@@ -257,9 +248,14 @@ def train(epoch):
         epoch_loss_pos += loss_pos.data.item()
         
         gpu_time = time.time() - end
-                
+        
+        # model_out_path = opt.path_to_save + f"/model_tmp_{idx}.pth".format(epoch)
+        # torch.save(modelME.module.state_dict(), model_out_path)
+        # idx = idx + 1
+        
         # measure accuracy and record loss
         result = Result()
+        # result.evaluate(depth_recon.data * DEPTH_STD + DEPTH_MEAN, depth_target.data * DEPTH_STD + DEPTH_MEAN)
         result.evaluate(depth_recon.data, depth_target.data)
         average_meter.update(result, gpu_time, data_time, image_target.size(0))
 
@@ -309,7 +305,11 @@ def reshape_4D_array(array_4D, width_num):
     if cha == 1:
         target_array_4D = target_array_4D / 10.0
         target_array_4D = np.repeat(target_array_4D, 3, axis=1)
-                
+        
+    # else: # RGB image
+    #     target_array_4D *= RGB_STD
+    #     target_array_4D += RGB_MEAN
+        
     return target_array_4D
 
 LOSS_best = math.inf
@@ -343,8 +343,13 @@ def val(epoch):
         image_target_lab = rgb2Lab_torch(image_target.cuda()) # image in lab color space
         image_target_labxy_feat_tensor = build_LABXY_feat(image_target_lab, train_XY_feat_stack)  # B* (3+2 )* H * W
         
+        
+        batch_size = depth_target.size(0)
         depth_input = depth_target.clone()
-
+        
+        image_height = image_target.size(2)
+        image_width  = image_target.size(3)
+            
         if torch.cuda.is_available():
             image_target = image_target.cuda()
             depth_input = depth_input.cuda()
@@ -367,10 +372,10 @@ def val(epoch):
          #   Generate the corrupted depth image
         depth_input = corrupt_mask_binary * depth_input
         
-        rgb_sparse_d_input = torch.cat((image_target, depth_input), 1) # white input
+        sparse_d_rgb_input = torch.cat((depth_input, image_target), 1) # white input
         
         with torch.no_grad():
-            restored_depth, lidar_out, precise, guide, = modelME.module.netE(rgb_sparse_d_input)
+            restored_depth, _, _, _ = modelME.module.netE(sparse_d_rgb_input)
         
         torch.cuda.synchronize()
         gpu_time = time.time() - end
@@ -462,13 +467,13 @@ def val(epoch):
     global LOSS_best
     if avg_loss_depth < LOSS_best:
         LOSS_best = avg_loss
-        model_out_path = opt.path_to_save + "/model_best.pth"
+        model_out_path = opt.path_to_save + "/model_best.pth".format(epoch)
         torch.save(modelME.module.state_dict(), model_out_path)
         print("Checkpoint saved to {}".format(model_out_path))
 
 
 def checkpoint(epoch):
-    if epoch%10 == 0:
+    if epoch%1 == 0:
         if not os.path.exists(opt.path_to_save):
             os.makedirs(opt.path_to_save)
         model_out_path = opt.path_to_save + "/model_epoch_{}.pth".format(epoch)
@@ -516,7 +521,7 @@ def val_rand(epoch):
             depth_target = depth_target.cuda()
             depth_mask = depth_mask.cuda()
             
-        rgb_sparse_d_input = torch.cat((image_target, depth_input), 1)
+        sparse_d_rgb_input = torch.cat((depth_input, image_target), 1)
             
         torch.cuda.synchronize()
         data_time = time.time() - end
@@ -524,7 +529,7 @@ def val_rand(epoch):
         # compute output
         end = time.time()
         with torch.no_grad():
-            depth_prediction, lidar_out, precise, guide, = modelME.module.netE(rgb_sparse_d_input)
+            depth_prediction, _, _, _ = modelME.module.netE(sparse_d_rgb_input)
             
         torch.cuda.synchronize()
         gpu_time = time.time() - end
@@ -532,6 +537,8 @@ def val_rand(epoch):
         # measure accuracy and record loss
         result = Result()
         result.evaluate(depth_prediction.data, depth_target.data)
+        # result.evaluate(depth_prediction.data * DEPTH_STD + DEPTH_MEAN, depth_target.data * DEPTH_STD + DEPTH_MEAN)
+        # result.evaluate(depth_prediction.data, depth_target.data)
         average_meter.update(result, gpu_time, data_time, depth_input.size(0))
         end = time.time()
         

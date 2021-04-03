@@ -572,9 +572,9 @@ class NetME_RGBSparseD2Dense(nn.Module):
         else:
             sparse_depth = mask_binary * img_depth
         
-        rgb_sparse_d_input = torch.cat((img_rgb, sparse_depth), 1) # white input
+        sparse_d_rgb_input = torch.cat((sparse_depth, img_rgb), 1) # white input
         
-        x_recon, lidar_out, precise, guide = self.netE(rgb_sparse_d_input)
+        x_recon, lidar_out, precise, guide = self.netE(sparse_d_rgb_input)
         
         return x_recon, lidar_out, precise, guide, mask_soft, mask_binary, pooled_xy_tensor, reconstr_xy_tensor, curr_spixl_map, prob
     
