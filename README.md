@@ -1,6 +1,6 @@
 # Adaptive Illumination based Depth Sensing using Deep Learning
 A PyTorch implementation of the paper:
-[Adaptive Illumination based Depth Sensing using Deep Learning] [[Arxiv Preprint]](https://arxiv.org/abs/2103.12297) 
+[Adaptive Illumination Based Depth Sensing Using Deep Superpixel and Soft Sampling Approximation] [[Arxiv Preprint]](https://arxiv.org/abs/2103.12297) [[IEEE TCI]](https://ieeexplore.ieee.org/abstract/document/9723580) 
 
 ## Introduction
 
